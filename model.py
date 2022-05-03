@@ -114,6 +114,8 @@ class STDN_NAS(nn.Module):
         # lstm part
             # lstm_output=torch.lstm(batch_first=True)
 
-            print("shape of nbhd_vecs:", nbhd_vecs[0].shape)
+            # print("shape of nbhd_vecs:", nbhd_vecs[0].shape)
 
-            return nbhd_vecs
+            # return nbhd_vecs
+
+# class STDN_NAS_Network()
