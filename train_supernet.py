@@ -1,143 +1,12 @@
-import argparse
-from cProfile import label
 from cmath import inf
-from ctypes import util
 import numpy as np
-import torch.utils.data as data
-import random
 import torch.nn as nn
-import torch
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
-import logging
-import time
-import os
-import yaml
+import torch, logging, time, os, yaml
 
 from utils import AverageMeter
 from model import STDN_NAS
-from dataloader import STDN_NAS_dataloader
-
-class BSSDataConcat(data.Dataset):
-    def __init__(self, nbhd, flow, label, tranform=None):
-        self.transform= tranform
-        self.__xs=nbhd
-        self.__ys=flow
-        self.__zs=label
-
-    def __getitem__(self, index):
-        return (self.__xs[index], self.__ys[index], self.__zs[index])
-    
-    def __len__(self):
-        return len(self.__xs)
-
-def STDN_dataloader(batch_size, num_workers, train_portion, config):
-    """
-    define the dataloader of STDN input
-    1. training & testing data:
-        a. nbhd_input
-        b. flow_input
-    2. training & testing label
-    both load by .npz file
-
-    data_size:
-        slim dataset:
-            vol:  (1000,7,2,7,7)
-            flow: (1000,7,4,7,7)
-            label:(1000,2)
-            7 lstm_seq_len, 1000 input data, 2 or 4 channel, 7*7 image
-        complete dataset:
-            vol:  (287400,7,2,7,7)
-            flow: (287400,7,4,7,7)
-            label:(287400,2)
-    """
-    # file_path='data\\slim\\'
-    loader=STDN_NAS_dataloader()
-    train_nbhd_input, train_flow_input, train_label=loader.sample_stdn( datatype="train", \
-                                                                        dataset_size=config["dataset"]["dataset_size"], \
-                                                                        att_lstm_num=config["dataset"]["att_lstm_num"], \
-                                                                        long_term_lstm_seq_len=config["dataset"]["long_term_lstm_seq_len"],
-                                                                        short_term_lstm_seq_len=config["dataset"]["short_term_lstm_seq_len"], \
-                                                                        nbhd_size=config["dataset"]["nbhd_size"],
-                                                                        cnn_nbhd_size=config["dataset"]["cnn_nbhd_size"])
-
-    # train_nbhd_input=np.load(file_path+'STDN_NAS_train_vol.npy')
-    # train_flow_input=np.load(file_path+'STDN_NAS_train_flow.npy')
-    # train_label=np.load(file_path+'STDN_NAS_train_label.npy')
-
-    train_dataset=BSSDataConcat(train_nbhd_input, train_flow_input, train_label)
-    # test_dataset=BSSDataConcat(test_nbhd_input, test_flow_input, test_label)
-
-    return _get_STDN_dataloader(train_dataset, batch_size, num_workers, train_portion, config["dataset"]["short_term_lstm_seq_len"])
-
-def _get_STDN_dataloader(train_dataset, batch_size, num_workers, train_portion, lstm_seq_num):
-    """
-    convert STDN dataset into dataloader type, 
-    and split the validation data from training data
-    """
-    if train_portion != 1:
-        train_len = len(train_dataset)
-        indices = list(range(train_len))
-        # shuffle index to enhance the randomness
-        random.shuffle(indices)
-        split = int(np.floor(train_portion * train_len))
-        train_idx, val_idx = indices[:split], indices[split:]
-
-        train_sampler = SubsetRandomSampler(train_idx)
-        val_sampler = SubsetRandomSampler(val_idx)
-
-        train_loader=DataLoader(
-            dataset=train_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            sampler=train_sampler,
-            pin_memory=True)
-        val_loader=DataLoader(
-            dataset=train_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            sampler=val_sampler,
-            pin_memory=True)
-    else:
-        train_loader=DataLoader(
-            dataset=train_dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=True)
-        val_loader = None
-    
-    return train_loader, val_loader
-
-def eval_all(output, target, criterion, threshold):
-    mask=target > threshold
-    if torch.sum(mask)==0:
-        return -1, -1
-    loss=criterion(output[mask], target[mask])
-    return loss, torch.sum(mask)
-
-def eval_pick_drop(output, target, criterion, threshold):
-
-    # split the pick and drop result and calculate the loss seperately
-    pick_output=output[:, 0]
-    drop_output=output[:, 1]
-
-    pick_target=target[:, 0]
-    drop_target=target[:, 1]
-    
-    pick_mask=pick_target>threshold
-    drop_mask=drop_target>threshold
-
-    # pick part
-    if torch.sum(pick_mask)!=0:
-        pick_rmse=torch.sqrt(criterion(pick_output[pick_mask], pick_target[pick_mask]))
-    else:
-        pick_rmse=-1
-    # drop part
-    if torch.sum(drop_mask)!=0:
-        drop_rmse=torch.sqrt(criterion(drop_output[drop_mask], drop_target[drop_mask]))
-    else:
-        drop_rmse=-1
-    return (pick_rmse, torch.sum(pick_mask)), (drop_rmse, torch.sum(drop_mask))
+from dataloader import STDN_dataloader
+from criterion import eval_all, eval_pick_drop
 
 
 def main():
@@ -169,7 +38,6 @@ def main():
     num_layers=config["model"]["num_layers"]
     device=config["model"]["device"]
     log_dir=config["file"]["log_dir"]
-    dataset_size=config["dataset"]["dataset_size"]
 
     """
     Log File
@@ -188,14 +56,11 @@ def main():
     """
     Get Dataloader
 
-        batch_size: size of each batch
         train_portion: ratio of training data/training+validation data
     """
-    batch_size=config["training"]["batch_size"]
-    num_workers=config["training"]["num_workers"]
     train_portion=config["training"]["train_portion"]
     logging.info("[Data loading for supernet training...]")
-    train_loader, val_loader=STDN_dataloader(batch_size, num_workers, train_portion, config)
+    train_loader, val_loader, null=STDN_dataloader("train",config)
     logging.info("Loading Data Complete")
 
     """
