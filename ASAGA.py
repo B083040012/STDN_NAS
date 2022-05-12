@@ -52,6 +52,8 @@ class ASAGA_Searcher():
         offspring_population=parent_population
         self.logger.info("--------------[Generation Start]--------------")
         for gen in range(self.generation_num):
+            if self.curr_tmp<=self.config["searching"]["final_tmp"]:
+                break
             for loop in range(int(self.population_num/2)):
                 index_list=[np.random.randint(low=0, high=self.num_layers),np.random.randint(low=0, high=self.num_layers)]
                 parent_list=[parent_population[index] for index in index_list]
@@ -70,10 +72,10 @@ class ASAGA_Searcher():
                 global_best_loss=tmp_best_loss
                 global_best_architecture=tmp_best_architecture
                 self.logger.info("%%%%%%%%%%%%%%%%%%%%%%%%")
-                self.logger.info("[Best Loss] gen:%d, gloabl_best_loss:%.5f" %(gen, global_best_loss))
+                self.logger.info("[Best Loss] gen:%d, gloabl_best_loss: %.5f" %(gen, global_best_loss))
                 self.logger.info("%%%%%%%%%%%%%%%%%%%%%%%%")
             if gen%10==0:
-                self.logger.info("[Generation %3d] tmp:%.5f, tmp_best:%.5f, gloabl_best_loss:%.5f" %(gen, self.curr_tmp, tmp_best_loss, global_best_loss))
+                self.logger.info("[Generation %3d] temperature: %.5f, tmp_best: %.5f, gloabl_best_loss: %.5f" %(gen, self.curr_tmp, tmp_best_loss, global_best_loss))
             self.curr_tmp=self.curr_tmp*self.annealing_ratio
         self.logger.info("--------------[Generation End]--------------")
 
@@ -134,6 +136,6 @@ class ASAGA_Searcher():
                     if total_loss==-1:
                         continue
                     total_val_loss.update(total_loss.item(), validlen)
-            architecture_loss.append(total_val_loss.avg)
+            architecture_loss.append(math.sqrt(total_val_loss.avg))
         # architecture_loss=np.array(architecture_loss)
         return architecture_loss
