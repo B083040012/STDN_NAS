@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch, logging, time, os, yaml, math
 
 from utils import AverageMeter
-from model import STDN_NAS_Supernet
+from model import STDN_NAS_Network
 from dataloader import STDN_dataloader
 from criterion import eval_all, eval_pick_drop
 
@@ -30,10 +30,10 @@ def main():
     lstm_seq_len=config["model"]["lstm_seq_len"]
     validation_threshold=config["dataset"]["threshold"]*config["dataset"]["vol_train_max"]
     train_threshold=-1
-    epoch_max=config["training"]["epoch_max"]
-    learning_rate=config["training"]["learning_rate"]
-    momentum=config["training"]["momentum"]
-    weight_decay=config["training"]["weight_decay"]
+    epoch_max=config["retraining"]["epoch_max"]
+    learning_rate=config["retraining"]["learning_rate"]
+    momentum=config["retraining"]["momentum"]
+    weight_decay=config["retraining"]["weight_decay"]
     weight_decay=float(weight_decay)
     num_choice=config["model"]["num_choice"]
     num_layers=config["model"]["num_layers"]
@@ -59,16 +59,16 @@ def main():
 
         train_portion: ratio of training data/training+validation data
     """
-    train_portion=config["training"]["train_portion"]
-    logging.info("[Data loading for supernet training...]")
+    train_portion=config["retraining"]["train_portion"]
+    logging.info("[Data loading for architecture retraining...]")
     train_loader, val_loader, null=STDN_dataloader("train",config)
     logging.info("Loading Data Complete")
 
     """
     Define the STDN model
     """
-    model=STDN_NAS_Supernet(lstm_seq_len)
-    model=model.to(device)
+    searched_choice=np.load(open(config["file"]["log_dir"]+"searched_choice_list.npy", "rb"))
+    model=STDN_NAS_Network(lstm_seq_len, searched_choice).to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), learning_rate, momentum, weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epoch_max)
@@ -79,7 +79,7 @@ def main():
     """
     running_start_time=time.time()
     best_val_loss=inf
-    logging.info("[Supernet Training Phase...]")
+    logging.info("[Searched Network Retraining Phase...]")
     for epoch in range(epoch_max):
         logging.info("epoch {epoch}/{epoch_max}".format(epoch=epoch, epoch_max=epoch_max))
         total_train_loss=AverageMeter()
@@ -87,7 +87,7 @@ def main():
         drop_train_loss=AverageMeter()
         lr=optimizer.param_groups[0]["lr"]
         
-        # SuperNet Training
+        # Network Training
         model.train()
         for step, (nbhd, flow, label) in enumerate(train_loader):
             # resize the tensor to [lstm_seq_num, batch_size, channel, size, size]
@@ -96,13 +96,11 @@ def main():
             target=label.to(device).float()
         
             optimizer.zero_grad()
-            # random sample the NAS choice block
-            nas_choice=list(np.random.randint(num_choice, size=num_layers))
 
             # criterion-total part
             # no denormalize in the training step
             # backward with mse loss, but show as rmse loss
-            output=model(cnn_tensor_list, flow_tensor_list, nas_choice)
+            output=model(cnn_tensor_list, flow_tensor_list)
             total_loss, validlen=eval_all(output, target, criterion, train_threshold)
             if total_loss==-1:
                 logging.info("step %d is skip-loss is not valid due to the threshold = %d" %(step, train_threshold))
@@ -119,8 +117,8 @@ def main():
                 drop_train_loss.update(drop_loss.item(), drop_validlen)
 
             if step%10==0:
-                logging.info("[SuperNet Training]:step {step}/{step_all}".format(step=step+1, step_all=len(train_loader)))
-                logging.info("learning rate: %.5f, total_train_loss (mse): %.5f(%.5f)" %(lr, math.sqrt(total_loss.item()), math.sqrt(total_train_loss.avg)))
+                logging.info("[Network Retraining]:step {step}/{step_all}".format(step=step+1, step_all=len(train_loader)))
+                logging.info("learning rate: %.5f, total_train_loss (rmse): %.5f(%.5f)" %(lr, math.sqrt(total_loss.item()), math.sqrt(total_train_loss.avg)))
                 logging.info("pick_train_loss_avg (rmse): %.5f, drop_train_loss_avg (rmse): %.5f" %(math.sqrt(pick_train_loss.avg), math.sqrt(drop_train_loss.avg)))
 
         scheduler.step()
@@ -128,7 +126,7 @@ def main():
         if train_portion==1:
             continue
 
-        # Supernet Validation
+        # Network Validation
         model.eval()
         total_val_loss=AverageMeter()
         pick_val_loss=AverageMeter()
@@ -144,8 +142,7 @@ def main():
                 target=label.to(device).float()
 
                 # random sample the NAS choice block
-                nas_choice=list(np.random.randint(num_choice, size=num_layers))
-                output=model(cnn_tensor_list, flow_tensor_list, nas_choice)
+                output=model(cnn_tensor_list, flow_tensor_list)
 
                 # criterion-total part
                 # denormalize in validation step
@@ -167,15 +164,19 @@ def main():
             if total_val_loss_rmse<best_val_loss:
                 best_val_loss=total_val_loss_rmse
                 logging.info("%%%%%%%%%%%%%%%%%%%%%%%%")
-                logging.info("Best checkpoint for val_loss %.5f" %(total_val_loss_rmse))
-                ckpt_file=os.path.join(log_dir+"checkpoint.pth")
+                logging.info("Best checkpoint for val_loss (rmse): %.5f" %(total_val_loss_rmse))
+                ckpt_file=os.path.join(log_dir+"retraining_best_checkpoint.pth")
                 torch.save(model.state_dict(), ckpt_file)
                 logging.info("checkpoint file saved")
                 logging.info("%%%%%%%%%%%%%%%%%%%%%%%%")
-            logging.info("[SuperNet Validation] epoch: %d/%d, val_loss_avg (rmse): %.5f, best_val_loss (rmse): %.5f" %(epoch, epoch_max, total_val_loss_rmse, best_val_loss))
+            logging.info("[Network Validation] epoch: %d/%d, val_loss_avg (rmse): %.5f, best_val_loss (rmse): %.5f" %(epoch, epoch_max, total_val_loss_rmse, best_val_loss))
             logging.info("pick_val_loss_avg (rmse): %.5f, drop_val_loss_avg (rmse): %.5f" %(math.sqrt(pick_val_loss.avg), math.sqrt(drop_val_loss.avg)))
         logging.info("**********************************")
         logging.info("End of epoch {epoch}/{epoch_max}".format(epoch=epoch+1, epoch_max=epoch_max))
+        ckpt_file=os.path.join(log_dir+"retrain_final_architecture.pth")
+        torch.save(model.state_dict(), ckpt_file)
+        logging.info("[Final Architecture Saved]")
+        logging.info("[End of Retraining Phase]")
         logging.info("===========================================")
 
     running_end_time=time.time()
