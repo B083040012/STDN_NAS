@@ -21,12 +21,12 @@ def eval_pick_drop(output, target, criterion, threshold):
 
     # pick part
     if torch.sum(pick_mask)!=0:
-        pick_rmse=torch.sqrt(criterion(pick_output[pick_mask], pick_target[pick_mask]))
+        pick_mse=criterion(pick_output[pick_mask], pick_target[pick_mask])
     else:
-        pick_rmse=-1
+        pick_mse=-1
     # drop part
     if torch.sum(drop_mask)!=0:
-        drop_rmse=torch.sqrt(criterion(drop_output[drop_mask], drop_target[drop_mask]))
+        drop_mse=criterion(drop_output[drop_mask], drop_target[drop_mask])
     else:
-        drop_rmse=-1
-    return (pick_rmse, torch.sum(pick_mask)), (drop_rmse, torch.sum(drop_mask))
+        drop_mse=-1
+    return (pick_mse, torch.sum(pick_mask)), (drop_mse, torch.sum(drop_mask))
