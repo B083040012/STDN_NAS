@@ -1,13 +1,15 @@
 file:
   log_dir: 'log\\'
 dataset:
-  threshold: 0
+  threshold: 0.0334
   dataset_size: max
   att_lstm_num: 3
   long_term_lstm_seq_len: 3
   short_term_lstm_seq_len: 7
   nbhd_size: 2
   cnn_nbhd_size: 3
+  vol_train_max: 299.0
+  vol_test_max: 307.0
 model:
   lstm_seq_len: 7
   num_choice: 3
@@ -21,3 +23,19 @@ training:
   batch_size: 64
   num_workers: 0
   train_portion: 0.8
+retraining:
+  epoch_max: 150
+  learning_rate: 0.025
+  momentum: 0.9
+  weight_decay: 3e-4
+  batch_size: 64
+  num_workers: 0
+  train_portion: 0.8
+searching:
+  generation_num: 100
+  population_num: 50
+  annealing_ratio: 0.9
+  initial_tmp: 200
+  final_tmp: 1
+  crossover_rate: 0.8
+  annealing_prob: 1
