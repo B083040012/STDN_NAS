@@ -1,7 +1,7 @@
-from model import STDN_NAS
+from model import STDN_NAS_Supernet
 from dataloader import STDN_dataloader
 from ASAGA import ASAGA_Searcher
-import yaml, torch, logging, time
+import yaml, torch, logging, time, os
 import torch.nn as nn
 import numpy as np
 
@@ -33,7 +33,7 @@ if __name__=='__main__':
     devices=config["model"]["device"]
 
     # loading model and criterion
-    model=STDN_NAS(lstm_seq_len).to(devices)
+    model=STDN_NAS_Supernet(lstm_seq_len).to(devices)
     ckpt=torch.load("log\\checkpoint.pth", map_location=devices)
     model.load_state_dict(ckpt, strict=True)
     logging.info("Finishing import the pretrained supernet")
@@ -55,4 +55,5 @@ if __name__=='__main__':
     end=time.time()
     logging.info("Search Complete")
     logging.info("[Searched Architecture Saved] Total Searched Time: %.5f sec, Architecture loss:%.5f" %((end-start), loss))
-    np.save("searched_architecture.npz", searched_architecture)
+    searched_file=os.path.join(config["file"]["log_dir"]+"searched_choice_list")
+    np.save(searched_file, searched_architecture)
